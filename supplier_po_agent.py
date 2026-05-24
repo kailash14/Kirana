@@ -54,14 +54,17 @@ def _demo_po(request_context, supplier_catalog, recs, store_profile):
     expected_delivery = today + timedelta(days=supplier_catalog.get("lead_time_days", 4))
 
     supplier_sku_ids = {s["sku_id"] for s in supplier_catalog.get("skus", [])}
-    matching_recs = [r for r in recs if r["sku_id"] in supplier_sku_ids and r["priority"] in ("CRITICAL", "HIGH", "MEDIUM")]
+    matching_recs = [
+        r for r in recs
+        if r["sku_id"] in supplier_sku_ids and r["priority"] in ("CRITICAL", "HIGH", "MEDIUM")
+    ]
     matching_recs.sort(key=lambda r: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}.get(r["priority"], 3))
 
     sku_price_map = {s["sku_id"]: s for s in supplier_catalog.get("skus", [])}
 
     line_items = []
     subtotal = 0.0
-    for r in matching_recs[:8]:  # cap at 8 lines for demo
+    for r in matching_recs[:8]:
         sku_info = sku_price_map[r["sku_id"]]
         price = sku_info["last_price"]
         qty = r["recommended_order_qty"]
@@ -86,13 +89,16 @@ def _demo_po(request_context, supplier_catalog, recs, store_profile):
     ceiling = store_profile.get("po_ceiling_inr", 50000)
     approval_needed = grand > ceiling
 
-    po_num = f"{store_profile.get('code', 'STR')}-PO-{today.strftime('%y%m%d')}-{abs(hash(supplier_catalog.get('supplier_id', 'X'))) % 10000:04d}"
+    po_num = (
+        f"{store_profile.get('code', 'STR')}-PO-{today.strftime('%y%m%d')}-"
+        f"{abs(hash(supplier_catalog.get('supplier_id', 'X'))) % 10000:04d}"
+    )
 
-    summary_items = ", ".join(f"{l['sku_name'].split()[0]} {l['quantity']}" for l in line_items[:3])
+    summary_items = ", ".join(f"{l['sku_name'].split()[0]} x{l['quantity']}" for l in line_items[:3])
     owner_summary = (
-        f"{supplier_catalog['name']} ko order taiyar — {summary_items}"
-        + (" aur baaki" if len(line_items) > 3 else "")
-        + f". Total ₹{grand:.0f}. Delivery {expected_delivery.strftime('%d %b')} tak. Bhej dun?"
+        f"Purchase order ready for {supplier_catalog['name']} — {summary_items}"
+        + (" and more" if len(line_items) > 3 else "")
+        + f". Total ₹{grand:.0f}. Expected delivery by {expected_delivery.strftime('%d %b')}. Shall I send it?"
     )
 
     items_text = "\n".join(
@@ -100,10 +106,12 @@ def _demo_po(request_context, supplier_catalog, recs, store_profile):
         for i, l in enumerate(line_items)
     )
     supplier_msg = (
-        f"Namaste, {store_profile['name']} ki taraf se order:\n{items_text}\n"
-        f"Approximate value: ₹{grand:.0f} including GST. "
-        f"Expected delivery: {expected_delivery.strftime('%d %b %Y')}. "
-        f"Kripya confirm karein. — {store_profile['name']}"
+        f"Dear {supplier_catalog['name']},\n\n"
+        f"Please find below our purchase order from {store_profile['name']}:\n\n"
+        f"{items_text}\n\n"
+        f"Approximate value: ₹{grand:.0f} including GST.\n"
+        f"Expected delivery by: {expected_delivery.strftime('%d %b %Y')}.\n\n"
+        f"Kindly confirm receipt of this order.\n\nRegards,\n{store_profile['name']}"
     )
 
     return {
@@ -128,5 +136,5 @@ def _demo_po(request_context, supplier_catalog, recs, store_profile):
         "owner_facing_summary": owner_summary,
         "supplier_facing_message": supplier_msg,
         "notes_to_owner": ["Prices reflect last known supplier rates."]
-        + (["⚠️ Approval needed — over ceiling."] if approval_needed else []),
+        + (["⚠️ Approval required — order exceeds spending ceiling."] if approval_needed else []),
     }
