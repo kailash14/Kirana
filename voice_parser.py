@@ -1,7 +1,5 @@
 """
 Voice Parser Agent — converts raw voice transcripts to structured action JSON.
-
-Public function: parse_voice_command(transcript, store_context) -> VoiceParseOutput
 """
 
 from __future__ import annotations
@@ -10,8 +8,6 @@ import json
 from typing import Any
 
 from base import call_claude
-
-
 from voice_parser_prompt import VOICE_PARSER_SYSTEM_PROMPT
 from schemas import VoiceParseOutput
 
@@ -19,17 +15,6 @@ from schemas import VoiceParseOutput
 def parse_voice_command(
     transcript: str, store_context: dict[str, Any]
 ) -> VoiceParseOutput:
-    """
-    Args:
-        transcript: raw voice transcript (may be code-mixed Tamil/Hindi/English)
-        store_context: dict with at least:
-            - sku_catalog: list of {sku_id, name, aliases}
-            - recent_sales: list of recent sale records (for anaphora resolution)
-            - active_customer_ref: optional, last named customer
-
-    Returns:
-        VoiceParseOutput
-    """
     user_message = json.dumps(
         {
             "transcript": transcript,
@@ -52,11 +37,10 @@ def parse_voice_command(
 
 
 def _demo_response_for(transcript: str, store_context: dict) -> dict:
-    """Heuristic demo response when no API key is set — for local demos."""
+    """Heuristic demo response when no API key is set."""
     lower = transcript.lower()
     catalog = store_context.get("sku_catalog", [])
 
-    # Find any SKU whose alias or name appears in the transcript
     matched_sku = None
     for sku in catalog:
         for alias in [sku["name"].lower()] + [a.lower() for a in sku.get("aliases", [])]:
@@ -66,7 +50,6 @@ def _demo_response_for(transcript: str, store_context: dict) -> dict:
         if matched_sku:
             break
 
-    # Heuristic quantity extraction
     qty = 1
     for num_str, num_val in {
         "ek ": 1, "one ": 1, "do ": 2, "two ": 2, "rendu ": 2,
@@ -77,31 +60,26 @@ def _demo_response_for(transcript: str, store_context: dict) -> dict:
         if num_str in lower:
             qty = num_val
             break
-    # Also look for digit numbers
     import re
     digit_match = re.search(r"\b(\d+)\b", transcript)
     if digit_match:
         qty = int(digit_match.group(1))
 
-    # Stem-based matching so Hindi/Tamil verb variants are tolerated in demo mode.
-    # The real LLM path handles morphology natively; these stems are only the offline fallback.
-    has_festival = any(w in lower for w in ["diwali", "pongal", "festival", "eid", "ramzan", "christmas", "navratri", "rakhi", "ratha yatra"])
-    has_question = any(w in lower for w in ["kya", "kaisa", "kitna", "chahiye", "should i", "what should", "kaun"])
-    has_time_horizon = any(w in lower for w in ["next week", "agle hafte", "agle mahine", "next month", "kal", "tomorrow"])
+    has_festival = any(w in lower for w in ["diwali", "pongal", "festival", "eid", "ramzan", "christmas", "navratri", "rakhi"])
+    has_question = any(w in lower for w in ["kya", "kaisa", "kitna", "chahiye", "should i", "what should", "what to"])
+    has_time_horizon = any(w in lower for w in ["next week", "next month", "tomorrow", "agle hafte"])
 
-    if any(w in lower for w in ["kitna stock", "stock kitna", "kitne", "stock hai", "evvalavu", "how many", "how much"]):
+    if any(w in lower for w in ["stock", "how many", "how much", "kitna", "kitne", "evvalavu"]):
         intent = "CHECK_STOCK"
-    elif any(w in lower for w in ["bill", "invoice", "rasid", "rasidh", "receipt"]):
+    elif any(w in lower for w in ["bill", "invoice", "receipt"]):
         intent = "GENERATE_INVOICE"
-    # Forecast/advisory: festival + question OR explicit forecast phrasing — must precede DRAFT_PO
     elif (has_festival and has_question) or has_time_horizon or "forecast" in lower:
         intent = "FORECAST_QUERY"
-    elif any(w in lower for w in ["order kar", "order de", "supplier", "patanjali", "itc", "metro", "bharat grains", "annapurna"]):
+    elif any(w in lower for w in ["order", "supplier", "patanjali", "itc", "metro", "bharat grains", "annapurna"]):
         intent = "DRAFT_PO"
-    # Sale verbs across Hindi/Tamil/English — match on stems
-    elif any(stem in lower for stem in ["sold", "bech", "bik", "kuduth", "kuduthen", "kudu", "diya", "diye", "becha", "bichka"]):
+    elif any(stem in lower for stem in ["sold", "bech", "bik", "kuduth", "kuduthen", "diya", "diye", "becha"]):
         intent = "LOG_SALE"
-    elif any(stem in lower for stem in ["aaya", "aayi", "aagaya", "delivery", "received", "receive", "stock aa", "milgaya"]):
+    elif any(stem in lower for stem in ["received", "receive", "delivery", "aaya", "stock aa"]):
         intent = "LOG_RECEIPT"
     elif has_festival:
         intent = "FORECAST_QUERY"
@@ -109,11 +87,11 @@ def _demo_response_for(transcript: str, store_context: dict) -> dict:
         intent = "UNCLEAR"
 
     payment = None
-    if "cash" in lower or "nagad" in lower:
+    if "cash" in lower:
         payment = "cash"
     elif "upi" in lower or "phonepe" in lower or "gpay" in lower:
         payment = "upi"
-    elif "udhar" in lower or "credit" in lower:
+    elif "credit" in lower or "udhar" in lower:
         payment = "credit"
 
     customer_ref = None
@@ -155,7 +133,7 @@ def _demo_response_for(transcript: str, store_context: dict) -> dict:
         "payment_mode": payment,
         "clarification_needed": intent == "UNCLEAR",
         "clarification_question": (
-            "Kya karna hai? Thoda detail mein bataiye." if intent == "UNCLEAR" else None
+            "Could you clarify what you need? Please provide more detail." if intent == "UNCLEAR" else None
         ),
         "raw_language_detected": "mixed",
         "reasoning": "Demo-mode heuristic parse.",
