@@ -13,7 +13,8 @@ from typing import Any
 
 from base import call_claude
 
-from prompts.replenishment_prompt import REPLENISHMENT_FORECAST_SYSTEM_PROMPT
+from replenishment_prompt import REPLENISHMENT_SYSTEM_PROMPT
+
 from schemas import ReplenishmentForecastOutput
 
 
