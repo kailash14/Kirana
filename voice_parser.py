@@ -12,7 +12,7 @@ from typing import Any
 from base import call_claude
 
 
-from prompts.voice_parser_prompt import VOICE_PARSER_SYSTEM_PROMPT
+from voice_parser_prompt import VOICE_PARSER_SYSTEM_PROMPT
 from schemas import VoiceParseOutput
 
 
