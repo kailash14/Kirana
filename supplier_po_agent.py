@@ -8,7 +8,8 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-from agents.base import call_claude
+from base import call_claude
+
 from prompts.supplier_po_prompt import SUPPLIER_PO_SYSTEM_PROMPT
 from schemas import SupplierPOOutput
 
