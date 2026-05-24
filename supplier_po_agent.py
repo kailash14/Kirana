@@ -9,8 +9,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from base import call_claude
-
-from prompts.supplier_po_prompt import SUPPLIER_PO_SYSTEM_PROMPT
+from supplier_po_prompt import SUPPLIER_PO_SYSTEM_PROMPT
 from schemas import SupplierPOOutput
 
 
