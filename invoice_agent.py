@@ -85,7 +85,6 @@ def _demo_invoice(sale_data, sku_catalog, store_profile, customer_profile, meta)
         mrp = sku["mrp"]
         gst_rate = sku["gst_rate"]
 
-        # MRP is inclusive of GST in India; back-calculate taxable value
         line_total = mrp * qty
         taxable = round(line_total / (1 + gst_rate / 100), 2)
         gst_amount = round(line_total - taxable, 2)
@@ -150,8 +149,9 @@ def _demo_invoice(sale_data, sku_catalog, store_profile, customer_profile, meta)
         "irn_required": grand_total_rounded > 50000,
         "validation_errors": [],
         "owner_facing_summary": (
-            f"{customer_profile.get('name', 'Customer')} ka bill ₹{grand_total_rounded:.0f} ka ban gaya. "
-            f"{len(line_items)} items, {sale_data.get('payment_mode', 'cash')} mein."
+            f"Invoice for {customer_profile.get('name', 'Customer')} generated — "
+            f"₹{grand_total_rounded:.0f} for {len(line_items)} item(s) via "
+            f"{sale_data.get('payment_mode', 'cash')}."
         ),
     }
 
