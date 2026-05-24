@@ -8,7 +8,8 @@ import json
 from datetime import datetime
 from typing import Any
 
-from agents.base import call_claude
+from base import call_claude
+
 from prompts.invoice_prompt import INVOICE_AGENT_SYSTEM_PROMPT
 from schemas import InvoiceOutput
 
