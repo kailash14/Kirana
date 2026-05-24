@@ -56,9 +56,9 @@ def init_state():
             {
                 "role": "assistant",
                 "content": (
-                    f"Namaste! Main DukaanAI hun — aapka store assistant. "
-                    f"Aaj {get_calendar_context()['day_of_week']}, "
-                    f"{get_calendar_context()['today']}. Kuch poochiye ya bataiye."
+                    f"Hello! I'm DukaanAI — your store assistant. "
+                    f"Today is {get_calendar_context()['day_of_week']}, "
+                    f"{get_calendar_context()['today']}. How can I help you?"
                 ),
             }
         ]
@@ -158,7 +158,7 @@ def process_owner_command(transcript: str) -> str:
         return _handle_forecast()
     if intent == "ADJUST_STOCK":
         return _handle_adjust_stock(parse)
-    return "Samajh nahi aaya. Thoda detail mein boliye?"
+    return "Sorry, I didn't understand that. Could you please provide more detail?"
 
 
 def _handle_log_sale(parse):
@@ -175,8 +175,8 @@ def _handle_log_sale(parse):
         current_stock = st.session_state.inventory.get(item.matched_sku_id, 0)
         if qty > current_stock:
             lines.append(
-                f"⚠️ {sku['name']} sirf {current_stock} stock mein, par {qty} sale ka log ho raha hai. "
-                f"Pakka {qty} bika tha?"
+                f"⚠️ {sku['name']} only has {current_stock} in stock, but logging {qty} as sold. "
+                f"Are you sure {qty} were sold?"
             )
         # Deduct
         st.session_state.inventory[item.matched_sku_id] = max(0, current_stock - qty)
@@ -199,16 +199,16 @@ def _handle_log_sale(parse):
     )
 
     items_str = ", ".join(f"{i['qty']} × {i['sku'].split()[0]}" for i in sale_items_logged)
-    customer_str = f" {parse.customer_reference} ko" if parse.customer_reference else ""
+    customer_str = f" to {parse.customer_reference}" if parse.customer_reference else ""
     payment_str = ""
     if parse.payment_mode:
         pmode = parse.payment_mode if isinstance(parse.payment_mode, str) else parse.payment_mode.value
         payment_str = f" ({pmode})"
 
-    response = f"✅ Sale log ho gaya{customer_str}: {items_str} — ₹{sale_total:.0f}{payment_str}."
+    response = f"✅ Sale logged{customer_str}: {items_str} — ₹{sale_total:.0f}{payment_str}."
     if lines:
         response += "\n\n" + "\n".join(lines)
-    response += "\n\nBill chahiye?"
+    response += "\n\nWould you like an invoice?"
     return response
 
 
@@ -222,14 +222,13 @@ def _handle_log_receipt(parse):
         st.session_state.inventory[item.matched_sku_id] = (
             st.session_state.inventory.get(item.matched_sku_id, 0) + qty
         )
-        lines.append(f"{sku['name']}: +{qty} (ab total {st.session_state.inventory[item.matched_sku_id]})")
-    return "📦 Stock receipt logged:\n" + "\n".join(lines) if lines else "Kya receive hua?"
+        lines.append(f"{sku['name']}: +{qty} (new total: {st.session_state.inventory[item.matched_sku_id]})")
+    return "📦 Stock receipt logged:\n" + "\n".join(lines) if lines else "What was received?"
 
 
 def _handle_stock_check(parse):
-    # If a colloquial name was given, find all SKUs matching that name fragment
     if not parse.items:
-        return "Kis cheez ka stock check karna hai?"
+        return "Which item do you want to check stock for?"
     colloq = parse.items[0].colloquial_name.lower()
     matches = []
     for sku in SKU_CATALOG:
@@ -237,14 +236,13 @@ def _handle_stock_check(parse):
             stock = st.session_state.inventory.get(sku["sku_id"], 0)
             matches.append(f"• {sku['name']}: **{stock}** units")
     if not matches:
-        return f"'{colloq}' nahi mila stock mein. Spelling check karein?"
+        return f"'{colloq}' not found in inventory. Please check the spelling."
     return "📊 Stock status:\n" + "\n".join(matches)
 
 
 def _handle_invoice(parse):
-    # Use most recent sale unless overridden
     if not st.session_state.sales_log:
-        return "Pichla sale nahi mila. Pehle sale log karein."
+        return "No recent sale found. Please log a sale first."
     last_sale = st.session_state.sales_log[-1]
 
     sale_data = {
@@ -280,7 +278,6 @@ def _handle_invoice(parse):
         invoice_meta,
     )
 
-    # Render invoice
     inv_md = _render_invoice_markdown(invoice)
     with st.expander("🧾 Generated invoice", expanded=True):
         st.markdown(inv_md)
@@ -330,9 +327,8 @@ GSTIN: {inv.store.gstin}
 def _handle_draft_po(parse):
     supplier = supplier_by_name_match(parse.supplier_reference)
     if not supplier:
-        return "Konsa supplier? Patanjali, Metro, Bharat Grains, Annapurna, ya Local Dairy?"
+        return "Which supplier? Patanjali, Metro, Bharat Grains, Annapurna, or Local Dairy?"
 
-    # Run forecast first to populate recommendations
     calendar_ctx = get_calendar_context()
     forecast = forecast_replenishment(
         SALES_HISTORY,
@@ -353,7 +349,6 @@ def _handle_draft_po(parse):
         store_profile=STORE_PROFILE,
     )
 
-    # Render
     po_md = _render_po_markdown(po)
     with st.expander("📋 Drafted Purchase Order", expanded=True):
         st.markdown(po_md)
@@ -410,7 +405,7 @@ def _handle_forecast():
     festival_str = ""
     if calendar_ctx["upcoming_festivals"]:
         nf = calendar_ctx["upcoming_festivals"][0]
-        festival_str = f" {nf['name']} {nf['days_away']} din mein hai."
+        festival_str = f" {nf['name']} is in {nf['days_away']} days."
     return (
         f"📈 {forecast.summary}{festival_str} "
         f"Estimated order value: ₹{forecast.total_estimated_order_value_inr:.0f}."
@@ -478,7 +473,7 @@ with st.sidebar:
     st.divider()
     st.caption(
         "🟡 In DEMO mode, no API calls are made — responses come from heuristic logic. "
-        "Set `ANTHROPIC_API_KEY` env var to enable LIVE mode."
+        "Set ANTHROPIC_API_KEY environment variable to enable LIVE mode."
     )
 
 # Main chat
@@ -487,7 +482,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # Input
-user_input = st.chat_input("Boliye... (Tamil/Hindi/English code-mixed OK)")
+user_input = st.chat_input("Type your command here...")
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
