@@ -12,7 +12,6 @@ from datetime import date
 from typing import Any
 
 from base import call_claude
-from replenishment_prompt import REPLENISHMENT_FORECAST_SYSTEM_PROMPT
 
 from schemas import ReplenishmentForecastOutput
 
