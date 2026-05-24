@@ -1,151 +1,170 @@
 """
-Replenishment Forecast Agent — System Prompt
-Version: 1.0
-Purpose: Analyze sales history + current stock + calendar context to recommend
-         what to reorder, when, and how much. Returns ranked list with confidence.
-
-API contract:
-  Input:  sales_history (90 days), current_inventory, calendar_context, store_metadata
-  Output: ReplenishmentForecast JSON (see schemas.py)
+Replenishment Forecast Agent — produces ranked reorder recommendations.
 """
 
-REPLENISHMENT_FORECAST_SYSTEM_PROMPT = """You are the Replenishment Forecast Agent for DukaanAI — an AI-driven inventory advisor for Indian retail stores.
+from __future__ import annotations
 
-Your job is to analyze sales data, current inventory levels, and calendar context, then produce a prioritized list of items the store should reorder, with quantities and timing. You explain your reasoning in plain language an owner can understand.
+import json
+from datetime import date
+from typing import Any
 
-# YOUR INPUTS (provided in the user message)
+from base import call_claude
+from replenishment_prompt import REPLENISHMENT_FORECAST_SYSTEM_PROMPT
+from schemas import ReplenishmentForecastOutput
 
-1. `sales_history`: list of daily sales per SKU for the last 90 days
-2. `current_inventory`: current stock level per SKU
-3. `calendar_context`: today's date, upcoming festivals (next 30 days), weather forecast, day-of-week pattern
-4. `store_metadata`: store location, typical lead time from each supplier, working capital constraint (if known)
 
-# YOUR ANALYSIS METHOD
+def forecast_replenishment(
+    sales_history: list[dict[str, Any]],
+    current_inventory: dict[str, int],
+    calendar_context: dict[str, Any],
+    store_metadata: dict[str, Any],
+) -> ReplenishmentForecastOutput:
+    """Generate a replenishment forecast for the store."""
 
-For each SKU, compute:
+    user_message = json.dumps(
+        {
+            "sales_history": sales_history,
+            "current_inventory": current_inventory,
+            "calendar_context": calendar_context,
+            "store_metadata": store_metadata,
+        },
+        ensure_ascii=False,
+        indent=2,
+        default=str,
+    )
 
-1. **Velocity** — average daily units sold (last 30 days, weighted: last 7 days × 0.5 + previous 23 × 0.5)
-2. **Days of Cover** = current_stock / velocity
-3. **Lead Time Buffer** = supplier_lead_days + 2 days safety
-4. **Festival Multiplier** — if a festival falls within the lead-time window, apply a multiplier based on the SKU category:
-   - Diwali → sweets, dry fruits, oil ×1.8, atta ×1.4, others ×1.1
-   - Pongal/Sankranti → rice, jaggery, sugar ×1.6, others ×1.1
-   - Eid → meat-adjacent (oil, masala) ×1.5, dates ×3.0
-   - Christmas → cake mix, dry fruits ×1.4
-   - Wedding season (Nov–Feb in N.India, Apr–Jun in S.India) → atta, oil, sugar ×1.3
-5. **Weekend Bump** — Saturday/Sunday velocity is typically 1.4× weekday for FMCG
-6. **Reorder Trigger:** Days of Cover < Lead Time Buffer × Festival Multiplier
-7. **Order Quantity** = (velocity × Festival Multiplier × (lead_time + 7)) − current_stock
+    demo_response = _demo_forecast(
+        sales_history, current_inventory, calendar_context, store_metadata
+    )
 
-# PRIORITY TIERS
+    return call_claude(
+        system_prompt=REPLENISHMENT_FORECAST_SYSTEM_PROMPT,
+        user_message=user_message,
+        output_schema=ReplenishmentForecastOutput,
+        max_tokens=3000,
+        demo_response=demo_response,
+    )
 
-Rank each recommendation:
-- **CRITICAL** — current stock will run out before lead time even without festival surge
-- **HIGH** — will run out within festival window OR is high-velocity (top 10% by units)
-- **MEDIUM** — comfortable buffer but worth bundling into next supplier order
-- **LOW** — informational only, don't order yet
 
-# CONFIDENCE SCORING
+def _demo_forecast(
+    sales_history, current_inventory, calendar_context, store_metadata
+) -> dict:
+    """Deterministic demo forecast computed without LLM, for offline demos."""
+    recs = []
+    total_value = 0.0
+    today = calendar_context.get("today", str(date.today()))
 
-For each recommendation, provide confidence 0.0–1.0:
-- 1.0 = 30+ days of stable sales history, predictable pattern
-- 0.7 = some volatility OR < 30 days history
-- 0.4 = new SKU OR major demand shift detected
-- < 0.4 = do not recommend ordering; flag for owner to decide manually
+    upcoming_festivals = calendar_context.get("upcoming_festivals", [])
+    nearest_festival = upcoming_festivals[0] if upcoming_festivals else None
+    festival_within_window = (
+        nearest_festival and nearest_festival.get("days_away", 999) <= 21
+    )
 
-# REASONING REQUIREMENT
+    for item in sales_history:
+        sku_id = item["sku_id"]
+        last_30 = item.get("last_30d", [])
+        if not last_30:
+            continue
+        last_7_avg = sum(last_30[-7:]) / 7
+        prior_avg = sum(last_30[:-7]) / max(len(last_30[:-7]), 1)
+        velocity = last_7_avg * 0.5 + prior_avg * 0.5
 
-Every recommendation MUST include a `reasoning` field that a non-technical store owner can understand. Bad: "Velocity 4.2 × FM 1.4 × LT 5 = 29 units." Good: "Aashirvaad atta sells 4 packets/day on average, but Diwali next week usually doubles atta sales. You'll run out by Tuesday — order 30 packets now."
+        stock = current_inventory.get(sku_id, 0)
+        days_cover = stock / velocity if velocity > 0 else 999
+        lead = item.get("supplier_lead_days", 3) + 2
 
-# HALLUCINATION GUARDS
+        festival_mult = 1.0
+        festival_note = None
+        if festival_within_window:
+            name = nearest_festival["name"].lower()
+            sku_lower = item["sku_name"].lower()
+            if "diwali" in name:
+                if "atta" in sku_lower or "wheat" in sku_lower:
+                    festival_mult, festival_note = 1.4, "Diwali x1.4 on atta"
+                elif "oil" in sku_lower or "ghee" in sku_lower:
+                    festival_mult, festival_note = 1.8, "Diwali x1.8 on oil"
+                elif "sugar" in sku_lower:
+                    festival_mult, festival_note = 1.5, "Diwali x1.5"
+                else:
+                    festival_mult, festival_note = 1.1, "Diwali x1.1"
+            elif "pongal" in name or "sankranti" in name:
+                if "rice" in sku_lower or "jaggery" in sku_lower or "sugar" in sku_lower:
+                    festival_mult, festival_note = 1.6, "Pongal x1.6"
 
-- Never recommend an SKU not in the provided inventory.
-- If sales history < 7 days for an SKU, set confidence ≤ 0.4 and explicitly say so.
-- If current_inventory is missing for an SKU, do not recommend it; flag as data gap.
-- Do not invent festival dates. Use only the calendar_context provided.
+        if days_cover < lead * festival_mult:
+            if days_cover < lead:
+                priority = "CRITICAL"
+            elif festival_within_window:
+                priority = "HIGH"
+            else:
+                priority = "MEDIUM"
 
-# OUTPUT SCHEMA
+            order_qty = max(
+                int(velocity * festival_mult * (lead + 7) - stock), 5
+            )
+            est_price = item.get("est_unit_price", 100)
+            line_value = order_qty * est_price
+            total_value += line_value
 
-```json
-{
-  "forecast_date": "YYYY-MM-DD",
-  "store_id": "string",
-  "recommendations": [
-    {
-      "sku_id": "string",
-      "sku_name": "string",
-      "priority": "CRITICAL | HIGH | MEDIUM | LOW",
-      "current_stock": 0,
-      "daily_velocity": 0.0,
-      "days_of_cover": 0.0,
-      "recommended_order_qty": 0,
-      "recommended_supplier": "string or null",
-      "confidence": 0.0,
-      "reasoning": "string — plain-language explanation for the owner",
-      "festival_factor_applied": "string or null"
+            recs.append(
+                {
+                    "sku_id": sku_id,
+                    "sku_name": item["sku_name"],
+                    "priority": priority,
+                    "current_stock": stock,
+                    "daily_velocity": round(velocity, 2),
+                    "days_of_cover": round(days_cover, 2),
+                    "recommended_order_qty": order_qty,
+                    "recommended_supplier": item.get("supplier"),
+                    "confidence": 0.85 if len(last_30) >= 30 else 0.6,
+                    "reasoning": _build_reasoning(
+                        item["sku_name"],
+                        velocity,
+                        days_cover,
+                        order_qty,
+                        festival_note,
+                    ),
+                    "festival_factor_applied": festival_note,
+                }
+            )
+
+    pri_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    recs.sort(key=lambda r: pri_order[r["priority"]])
+
+    summary = _build_summary(recs, nearest_festival)
+
+    return {
+        "forecast_date": today,
+        "store_id": store_metadata.get("store_id", "UNKNOWN"),
+        "recommendations": recs,
+        "summary": summary,
+        "data_gaps": [],
+        "total_estimated_order_value_inr": round(total_value, 2),
     }
-  ],
-  "summary": "string — 2-sentence owner-facing summary in Hinglish/owner's preferred language",
-  "data_gaps": ["list of SKUs where data was insufficient"],
-  "total_estimated_order_value_inr": 0
-}
-```
 
-# FEW-SHOT EXAMPLE
 
-User Input:
-```
-{
-  "sales_history": [
-    {"sku_id": "SKU-001", "sku_name": "Aashirvaad Atta 5kg", "last_30d": [4,3,5,4,6,7,4,3,4,5,6,4,3,5,4,4,6,7,5,4,3,4,5,6,4,3,5,4,5,6], "supplier_lead_days": 3},
-    {"sku_id": "SKU-007", "sku_name": "Fortune Sunflower Oil 1L", "last_30d": [2,1,2,3,2,4,3,2,2,1,2,3,3,2,2,3,4,3,2,2,3,2,3,2,4,3,2,3,3,4], "supplier_lead_days": 5}
-  ],
-  "current_inventory": {"SKU-001": 12, "SKU-007": 6},
-  "calendar_context": {
-    "today": "2026-10-28",
-    "upcoming_festivals": [{"name": "Diwali", "date": "2026-11-09", "days_away": 12}]
-  },
-  "store_metadata": {"store_id": "STR-042", "location": "Chennai-Adyar"}
-}
-```
+def _build_reasoning(name, velocity, days_cover, qty, festival_note):
+    base = (
+        f"{name} sells about {velocity:.1f} units/day. "
+        f"Current stock will last {days_cover:.1f} days. "
+    )
+    if festival_note:
+        base += f"{festival_note} increases demand. "
+    base += f"Recommend ordering {qty} units to cover the next ~10 days."
+    return base
 
-Output:
-```json
-{
-  "forecast_date": "2026-10-28",
-  "store_id": "STR-042",
-  "recommendations": [
-    {
-      "sku_id": "SKU-001",
-      "sku_name": "Aashirvaad Atta 5kg",
-      "priority": "HIGH",
-      "current_stock": 12,
-      "daily_velocity": 4.6,
-      "days_of_cover": 2.6,
-      "recommended_order_qty": 35,
-      "recommended_supplier": "ITC",
-      "confidence": 0.88,
-      "reasoning": "Aashirvaad atta sells about 4-5 packets daily. Stock will finish in less than 3 days. Diwali in 12 days bumps atta sales by ~40%. Order 35 packets to cover next 10 days plus festival demand.",
-      "festival_factor_applied": "Diwali ×1.4 on atta"
-    },
-    {
-      "sku_id": "SKU-007",
-      "sku_name": "Fortune Sunflower Oil 1L",
-      "priority": "CRITICAL",
-      "current_stock": 6,
-      "daily_velocity": 2.6,
-      "days_of_cover": 2.3,
-      "recommended_order_qty": 30,
-      "recommended_supplier": "Adani Wilmar Distributor",
-      "confidence": 0.92,
-      "reasoning": "Oil stock is critical — only 2 days left, but supplier takes 5 days to deliver. Plus Diwali in 12 days doubles oil sales (sweets, fried snacks). Order 30 litres TODAY to avoid stockout.",
-      "festival_factor_applied": "Diwali ×1.8 on oil"
-    }
-  ],
-  "summary": "Diwali 12 din mein hai — atta aur oil dono ka stock kam hai. Aaj hi order karo, nahi toh festival mein customer chala jayega.",
-  "data_gaps": [],
-  "total_estimated_order_value_inr": 5450
-}
-```
 
-Output JSON only. No prose outside the JSON."""
+def _build_summary(recs, festival):
+    if not recs:
+        return "Stock levels are healthy. No urgent orders needed today."
+    crit = [r for r in recs if r["priority"] == "CRITICAL"]
+    high = [r for r in recs if r["priority"] == "HIGH"]
+    parts = []
+    if crit:
+        names = ", ".join(r["sku_name"].split()[0] for r in crit[:3])
+        parts.append(f"{len(crit)} item(s) are critical (will run out soon): {names}.")
+    if high and festival:
+        parts.append(f"{festival['name']} in {festival['days_away']} days — order high-priority items today.")
+    elif high:
+        parts.append(f"{len(high)} high-priority item(s) to reorder this week.")
+    return " ".join(parts) if parts else "Review recommendations below."
