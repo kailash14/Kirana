@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from base import call_claude
-from invoice_prompt import INVOICE_SYSTEM_PROMPT
+from invoice_prompt import INVOICE_AGENT_SYSTEM_PROMPT
 from schemas import InvoiceOutput
 
 
