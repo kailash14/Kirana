@@ -23,13 +23,12 @@ import streamlit as st
 # Make repo importable
 sys.path.insert(0, str(Path(__file__).parent))
 
-from agents import (
-    parse_voice_command,
-    forecast_replenishment,
-    generate_invoice,
-    draft_purchase_order,
-)
-from agents.base import DEMO_MODE
+from voice_parser import parse_voice_command
+from replenishment_forecast import forecast_replenishment
+from invoice_agent import generate_invoice
+from supplier_po_agent import draft_purchase_order
+from base import DEMO_MODE
+
 from seed_data import (
     SKU_CATALOG,
     SUPPLIERS,
