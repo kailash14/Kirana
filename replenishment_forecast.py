@@ -11,7 +11,8 @@ import json
 from datetime import date
 from typing import Any
 
-from agents.base import call_claude
+from base import call_claude
+
 from prompts.replenishment_prompt import REPLENISHMENT_FORECAST_SYSTEM_PROMPT
 from schemas import ReplenishmentForecastOutput
 
