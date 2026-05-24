@@ -31,7 +31,7 @@ STORE_PROFILE = {
     "state_code": "33",
     "po_ceiling_inr": 50000,
     "trust_level": 2,
-    "preferred_language": "mixed",
+    "preferred_language": "en",
 }
 
 
@@ -189,17 +189,17 @@ SUPPLIERS = [
 # ============================================================
 
 CURRENT_INVENTORY = {
-    "SKU-001": 12,  # atta — low
+    "SKU-001": 12,
     "SKU-002": 18,
     "SKU-003": 8,
     "SKU-004": 14,
     "SKU-005": 22,
     "SKU-006": 45,
-    "SKU-007": 6,   # oil — critical
+    "SKU-007": 6,
     "SKU-008": 11,
     "SKU-009": 9,
     "SKU-010": 32,
-    "SKU-011": 8,   # maggi cup — low
+    "SKU-011": 8,
     "SKU-012": 24,
     "SKU-013": 18,
     "SKU-014": 7,
@@ -210,7 +210,7 @@ CURRENT_INVENTORY = {
     "SKU-019": 19,
     "SKU-020": 14,
     "SKU-021": 22,
-    "SKU-022": 5,   # honey — low
+    "SKU-022": 5,
     "SKU-023": 30,
     "SKU-024": 24,
     "SKU-025": 38,
@@ -222,10 +222,9 @@ CURRENT_INVENTORY = {
 # ============================================================
 
 def _generate_30d_sales(base_velocity: float, volatility: float = 0.3) -> list[int]:
-    """Generate plausible daily sales for an SKU with weekend bump."""
     sales = []
     for i in range(30):
-        day_of_week = i % 7  # 0=Mon ... 6=Sun for synthetic purposes
+        day_of_week = i % 7
         weekend_mult = 1.4 if day_of_week >= 5 else 1.0
         noise = random.uniform(1 - volatility, 1 + volatility)
         raw = base_velocity * weekend_mult * noise
@@ -259,18 +258,17 @@ for sku in SKU_CATALOG:
                 (s["name"] for s in SUPPLIERS if s["supplier_id"] == sku["primary_supplier_id"]),
                 None,
             ),
-            "est_unit_price": sku["mrp"] * 0.92,  # supplier price ~ 8% margin
+            "est_unit_price": sku["mrp"] * 0.92,
         }
     )
 
 
 # ============================================================
-# Calendar context (today + festivals)
+# Calendar context
 # ============================================================
 
 def get_calendar_context() -> dict:
     today = date.today()
-    # Static festival calendar for demo
     festivals = [
         {"name": "Eid al-Adha", "date": "2026-05-27"},
         {"name": "Ratha Yatra", "date": "2026-06-26"},
@@ -293,16 +291,16 @@ def get_calendar_context() -> dict:
 
 
 # ============================================================
-# Initial demo conversation seed
+# Demo suggestions — English only
 # ============================================================
 
 DEMO_SUGGESTIONS = [
-    "Aashirvaad atta paanch packet Kumar uncle ko bika, cash mein",
-    "Kitna Maggi bacha hai stock mein?",
-    "Patanjali wale ko order bhejo",
-    "Diwali ke liye kya order karu?",
-    "Kumar uncle ka bill banao",
-    "Aaj Fortune Oil 3 litre Sharma ji ne UPI mein liya",
+    "Sold 5 packets of Aashirvaad atta to Kumar, cash payment",
+    "How much Maggi is left in stock?",
+    "Send an order to Patanjali",
+    "What should I order for Diwali?",
+    "Generate invoice for Kumar",
+    "Fortune Oil 3 litres sold to Sharma via UPI today",
 ]
 
 
